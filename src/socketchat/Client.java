@@ -5,6 +5,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.util.Scanner;
+import java.io.File;
+import java.io.FileInputStream;
 
 public class Client {
     private Socket socket;
@@ -65,6 +67,24 @@ public class Client {
             }
         }
     }
+    
+    /*public void uploadFileToServer(String filePath, String remoteFilePath) {
+        try {
+            File file = new File(filePath);
+            FileInputStream fileInputStream = new FileInputStream(file);
+            boolean success = ftpClient.storeFile(remoteFilePath, fileInputStream);
+            fileInputStream.close();
+
+            if (success) {
+                System.out.println("File uploaded successfully.");
+            } else {
+                System.out.println("Failed to upload file.");
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+*/
 
     public static void main(String[] args) {
         Client client = new Client("localhost", 7777);
