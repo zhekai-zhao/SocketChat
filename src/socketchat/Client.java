@@ -1,12 +1,7 @@
 package socketchat;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.*;
 import java.net.Socket;
-import java.util.Scanner;
-import java.io.File;
-import java.io.FileInputStream;
 
 public class Client {
     private Socket socket;
@@ -23,72 +18,73 @@ public class Client {
         }
     }
 
-    public void start() {
-        System.out.println("Connected to server.");
-
-        Thread inputThread = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    while (true) {
-                        byte[] buffer = new byte[1024];
-                        int bytesRead = inputStream.read(buffer);
-
-                        if (bytesRead == -1) {
-                            break;
-                        }
-
-                        String message = new String(buffer, 0, bytesRead);
-                        System.out.println("Received message: " + message);
-                    }
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }
-        });
-
-        inputThread.start();
-
-        Scanner scanner = new Scanner(System.in);
-
+    public void sendMessage(String message) {
         try {
-            while (true) {
-                String message = scanner.nextLine();
-                outputStream.write(message.getBytes());
-            }
+            outputStream.write(message.getBytes());
         } catch (IOException e) {
             e.printStackTrace();
-        } finally {
-            try {
-                inputThread.interrupt();
-                socket.close();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
         }
     }
     
-    /*public void uploadFileToServer(String filePath, String remoteFilePath) {
+    public void sendFile(String filePath) {
         try {
             File file = new File(filePath);
-            FileInputStream fileInputStream = new FileInputStream(file);
-            boolean success = ftpClient.storeFile(remoteFilePath, fileInputStream);
-            fileInputStream.close();
+            if (file.exists() && file.isFile()) {
+                sendMessage("FILE_REQUEST");
 
-            if (success) {
-                System.out.println("File uploaded successfully.");
+                byte[] buffer = new byte[1024];
+                FileInputStream fileInputStream = new FileInputStream(file);
+                BufferedInputStream bis = new BufferedInputStream(fileInputStream);
+
+                int bytesRead;
+                while ((bytesRead = bis.read(buffer)) != -1) {
+                    outputStream.write(buffer, 0, bytesRead);
+                }
+
+                bis.close();
+                outputStream.flush();
+                System.out.println("File sent: " + filePath);
             } else {
-                System.out.println("Failed to upload file.");
+                System.out.println("File not found: " + filePath);
             }
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
-*/
+
+    public void requestFile(String fileName) {
+        try {
+            sendMessage("FILE_REQUEST");
+            outputStream.write(fileName.getBytes());
+            outputStream.flush();
+
+            byte[] buffer = new byte[1024];
+            FileOutputStream fileOutputStream = new FileOutputStream(fileName);
+            int bytesRead;
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                fileOutputStream.write(buffer, 0, bytesRead);
+            }
+            fileOutputStream.close();
+            System.out.println("File received: " + fileName);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void close() {
+        try {
+            socket.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 
     public static void main(String[] args) {
         Client client = new Client("localhost", 7777);
-        client.start();
+        client.sendMessage("Hello Server!");
+        client.sendFile("test.zip");
+        client.requestFile("test.zip");
+
+        client.close();
     }
 }
-
