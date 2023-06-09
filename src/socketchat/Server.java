@@ -1,4 +1,6 @@
+// Server.java
 package socketchat;
+
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -46,13 +48,20 @@ public class Server {
 
     public void sendFile(File file, ClientHandler sender) {
         try {
-            BufferedInputStream bis = new BufferedInputStream(new FileInputStream(file));
+            FileInputStream fis = new FileInputStream(file);
+            BufferedInputStream bis = new BufferedInputStream(fis);
+
             byte[] buffer = new byte[1024];
             int bytesRead;
             while ((bytesRead = bis.read(buffer)) != -1) {
                 sender.sendBytes(buffer, bytesRead);
             }
+
             bis.close();
+
+            // Notify other clients about the file transfer completion
+            String message = "File received: " + file.getName();
+            broadcastMessage(message, sender);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -126,11 +135,13 @@ public class Server {
                 File file = new File(fileName);
                 if (file.exists() && file.isFile()) {
                     sendFile(file, this);
+                    broadcastMessage("File received: " + file.getName(), this);
                 }
             } catch (IOException e) {
                 e.printStackTrace();
             }
         }
+
     }
 
     public static void main(String[] args) {

@@ -25,7 +25,7 @@ public class Client {
             e.printStackTrace();
         }
     }
-    
+
     public void sendFile(String filePath) {
         try {
             File file = new File(filePath);
@@ -38,7 +38,7 @@ public class Client {
 
                 int bytesRead;
                 while ((bytesRead = bis.read(buffer)) != -1) {
-                    outputStream.write(buffer, 0, bytesRead);
+                    sendBytesWithParity(buffer, bytesRead);
                 }
 
                 bis.close();
@@ -79,12 +79,29 @@ public class Client {
         }
     }
 
-    public static void main(String[] args) {
-        Client client = new Client("localhost", 7777);
-        client.sendMessage("Hello Server!");
-        client.sendFile("test.zip");
-        client.requestFile("test.zip");
+    private void sendBytesWithParity(byte[] bytes, int length) {
+        byte[] dataWithParity = addParityBits(bytes, length);
+        try {
+            outputStream.write(dataWithParity);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 
-        client.close();
+    private byte[] addParityBits(byte[] data, int length) {
+        byte[] dataWithParity = new byte[length + 1];
+        for (int i = 0; i < length; i++) {
+            dataWithParity[i] = data[i];
+        }
+        dataWithParity[length] = computeParity(data, length);
+        return dataWithParity;
+    }
+
+    private byte computeParity(byte[] data, int length) {
+        byte parity = 0;
+        for (int i = 0; i < length; i++) {
+            parity ^= data[i];
+        }
+        return parity;
     }
 }
