@@ -1,107 +1,73 @@
+// Client.java
 package socketchat;
 
 import java.io.*;
 import java.net.Socket;
 
 public class Client {
-    private Socket socket;
-    private InputStream inputStream;
-    private OutputStream outputStream;
+    private static final int PACKET_SIZE = 1024;
+    private static final int MAX_RETRY_COUNT = 3;
 
-    public Client(String serverAddress, int serverPort) {
-        try {
-            socket = new Socket(serverAddress, serverPort);
-            inputStream = socket.getInputStream();
-            outputStream = socket.getOutputStream();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
+    public static void main(String[] args) {
+        String serverIP = "localhost";
+        int serverPort = 7777;
+        String filePath = "file1.txt";
 
-    public void sendMessage(String message) {
         try {
-            outputStream.write(message.getBytes());
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
+            Socket socket = new Socket(serverIP, serverPort);
+            System.out.println("Connected to server.");
 
-    public void sendFile(String filePath) {
-        try {
+            BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(socket.getOutputStream()));
+            writer.write("FILE_REQUEST");
+            writer.newLine();
+            writer.flush();
+
+            writer.write(filePath);
+            writer.newLine();
+            writer.flush();
+
             File file = new File(filePath);
-            if (file.exists() && file.isFile()) {
-                sendMessage("FILE_REQUEST");
+            FileOutputStream fos = new FileOutputStream(file);
+            BufferedInputStream bis = new BufferedInputStream(socket.getInputStream());
 
-                byte[] buffer = new byte[1024];
-                FileInputStream fileInputStream = new FileInputStream(file);
-                BufferedInputStream bis = new BufferedInputStream(fileInputStream);
+            byte[] buffer = new byte[PACKET_SIZE];
+            int bytesRead;
+            int retryCount = 0;
+            while ((bytesRead = bis.read(buffer)) != -1) {
+                fos.write(buffer, 0, bytesRead);
+                fos.flush();
 
-                int bytesRead;
-                while ((bytesRead = bis.read(buffer)) != -1) {
-                    sendBytesWithParity(buffer, bytesRead);
+                if (!receiveConfirmation(socket)) {
+                    retryCount++;
+                    if (retryCount > MAX_RETRY_COUNT) {
+                        System.out.println("Exceeded maximum retry count. File transfer failed.");
+                        break;
+                    }
+                    System.out.println("Failed to receive confirmation. Retrying...");
+                    continue;
                 }
 
-                bis.close();
-                outputStream.flush();
-                System.out.println("File sent: " + filePath);
-            } else {
-                System.out.println("File not found: " + filePath);
+                retryCount = 0;
             }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
 
-    public void requestFile(String fileName) {
-        try {
-            sendMessage("FILE_REQUEST");
-            outputStream.write(fileName.getBytes());
-            outputStream.flush();
+            fos.close();
+            bis.close();
 
-            byte[] buffer = new byte[1024];
-            FileOutputStream fileOutputStream = new FileOutputStream(fileName);
-            int bytesRead;
-            while ((bytesRead = inputStream.read(buffer)) != -1) {
-                fileOutputStream.write(buffer, 0, bytesRead);
-            }
-            fileOutputStream.close();
-            System.out.println("File received: " + fileName);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    public void close() {
-        try {
             socket.close();
+            System.out.println("Connection closed.");
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
-    private void sendBytesWithParity(byte[] bytes, int length) {
-        byte[] dataWithParity = addParityBits(bytes, length);
+    private static boolean receiveConfirmation(Socket socket) {
         try {
-            outputStream.write(dataWithParity);
+            BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            String confirmation = reader.readLine();
+            return confirmation != null && confirmation.equals("SUCCESS");
         } catch (IOException e) {
             e.printStackTrace();
         }
-    }
-
-    private byte[] addParityBits(byte[] data, int length) {
-        byte[] dataWithParity = new byte[length + 1];
-        for (int i = 0; i < length; i++) {
-            dataWithParity[i] = data[i];
-        }
-        dataWithParity[length] = computeParity(data, length);
-        return dataWithParity;
-    }
-
-    private byte computeParity(byte[] data, int length) {
-        byte parity = 0;
-        for (int i = 0; i < length; i++) {
-            parity ^= data[i];
-        }
-        return parity;
+        return false;
     }
 }

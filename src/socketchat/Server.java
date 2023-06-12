@@ -50,11 +50,12 @@ public class Server {
         try {
             FileInputStream fis = new FileInputStream(file);
             BufferedInputStream bis = new BufferedInputStream(fis);
+            OutputStream os = sender.socket.getOutputStream();
 
             byte[] buffer = new byte[1024];
             int bytesRead;
             while ((bytesRead = bis.read(buffer)) != -1) {
-                sender.sendBytes(buffer, bytesRead);
+                os.write(buffer, 0, bytesRead);
             }
 
             bis.close();
@@ -119,16 +120,6 @@ public class Server {
             }
         }
 
-        public void sendBytes(byte[] bytes, int length) {
-            try {
-                writer.write(new String(bytes, 0, length));
-                writer.newLine();
-                writer.flush();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-
         private void handleFileRequest() {
             try {
                 String fileName = reader.readLine();
@@ -136,12 +127,12 @@ public class Server {
                 if (file.exists() && file.isFile()) {
                     sendFile(file, this);
                     broadcastMessage("File received: " + file.getName(), this);
+                    System.out.println("File received");
                 }
             } catch (IOException e) {
                 e.printStackTrace();
             }
         }
-
     }
 
     public static void main(String[] args) {
