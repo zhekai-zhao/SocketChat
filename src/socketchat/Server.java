@@ -1,5 +1,4 @@
 package socketchat;
-
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -21,12 +20,10 @@ public class Server {
 
     public void start() {
         System.out.println("Server started.");
-
         while (true) {
             try {
                 Socket socket = serverSocket.accept();
                 System.out.println("New client connected: " + socket.getInetAddress().getHostAddress());
-
                 ClientHandler clientHandler = new ClientHandler(socket);
                 clients.add(clientHandler);
                 clientHandler.start();
@@ -37,7 +34,6 @@ public class Server {
     }
 
     public void broadcastMessage(String message, ClientHandler sender) {
-        // Send message to the other clients
         for (ClientHandler client : clients) {
             if (client != sender) {
                 client.sendMessage(message);
@@ -45,26 +41,17 @@ public class Server {
         }
     }
 
-    public void sendFile(File file, ClientHandler sender) {
-        try {
-            FileInputStream fis = new FileInputStream(file);
-            BufferedInputStream bis = new BufferedInputStream(fis);
-            OutputStream os = sender.getSocket().getOutputStream();
-
-            byte[] buffer = new byte[1024];
-            int bytesRead;
-            while ((bytesRead = bis.read(buffer)) != -1) {
-                os.write(buffer, 0, bytesRead);
+    public void broadcastFile(String fileName, ClientHandler sender) {
+        File file = new File(fileName);
+        if (!file.exists() || !file.isFile()) {
+            sender.sendMessage("File does not exist or is not a regular file.");
+            return;
+        }
+        
+        for (ClientHandler client : clients) {
+            if (client != sender) {
+                client.sendFile(file);
             }
-
-            bis.close();
-            sender.sendMessage("SUCCESS");
-            // Notify other clients about the file transfer completion
-            String message = "File received: " + file.getName();
-            broadcastMessage(message, sender);
-            System.out.println("File received");
-        } catch (IOException e) {
-            e.printStackTrace();
         }
     }
 
@@ -91,9 +78,9 @@ public class Server {
                     if (message == null) {
                         break;
                     }
-
-                    if (message.equals("FILE_REQUEST")) {
-                        handleFileRequest();
+                    if (message.startsWith("FILE_TRANSFER_REQUEST ")) {
+                        String fileName = message.substring("FILE_TRANSFER_REQUEST ".length()).trim();
+                        broadcastFile(fileName, this);
                     } else {
                         broadcastMessage(message, this);
                     }
@@ -120,25 +107,40 @@ public class Server {
             }
         }
 
-        private void handleFileRequest() {
+        public void sendFile(File file) {
             try {
-                String fileName = reader.readLine();
-                File file = new File(fileName);
-                if (file.exists() && file.isFile()) {
-                    sendFile(file, this);
+                FileInputStream fis = new FileInputStream(file);
+                BufferedInputStream bis = new BufferedInputStream(fis);
+                OutputStream os = socket.getOutputStream();
+
+                byte[] buffer = new byte[1024];
+                int bytesRead;
+                while ((bytesRead = bis.read(buffer)) != -1) {
+                    os.write(buffer, 0, bytesRead);
                 }
+
+                bis.close();
+                fis.close();
+
+                // Send "SUCCESS" message after successful file transfer
+                sendMessage("SUCCESS");
+
+                // Notify other clients about the file transfer completion
+                String message = "File received: " + file.getName();
+                broadcastMessage(message, this);
+                System.out.println("File sent");
             } catch (IOException e) {
                 e.printStackTrace();
             }
         }
-
+        
         public Socket getSocket() {
             return socket;
         }
     }
-
+    
     public static void main(String[] args) {
-        Server server = new Server(1111);
+        Server server = new Server(6666);
         server.start();
     }
 }
