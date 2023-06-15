@@ -2,17 +2,17 @@ package socketchat;
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class Server {
     private ServerSocket serverSocket;
-    private List<ClientHandler> clients;
+    private CopyOnWriteArrayList<ClientHandler> clients;
+    private volatile boolean isRunning = true;
 
     public Server(int port) {
         try {
             serverSocket = new ServerSocket(port);
-            clients = new ArrayList<>();
+            clients = new CopyOnWriteArrayList<>();
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -20,7 +20,7 @@ public class Server {
 
     public void start() {
         System.out.println("Server started.");
-        while (true) {
+        while (isRunning) {
             try {
                 Socket socket = serverSocket.accept();
                 System.out.println("New client connected: " + socket.getInetAddress().getHostAddress());
@@ -28,8 +28,19 @@ public class Server {
                 clients.add(clientHandler);
                 clientHandler.start();
             } catch (IOException e) {
-                e.printStackTrace();
+                if (isRunning) {
+                    e.printStackTrace();
+                }
             }
+        }
+    }
+
+    public void stop() {
+        isRunning = false;
+        try {
+            serverSocket.close();
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 
@@ -122,13 +133,13 @@ public class Server {
                 bis.close();
                 fis.close();
 
-                // Send "SUCCESS" message after successful file transfer
-                sendMessage("SUCCESS");
-
                 // Notify other clients about the file transfer completion
                 String message = "File received: " + file.getName();
                 broadcastMessage(message, this);
                 System.out.println("File sent");
+
+                // Notify the client that the file transfer is complete
+                sendMessage("FILE_TRANSFER_COMPLETE");
             } catch (IOException e) {
                 e.printStackTrace();
             }
