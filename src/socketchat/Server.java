@@ -8,6 +8,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public class Server {
     private ServerSocket serverSocket;
     private CopyOnWriteArrayList<ClientHandler> clients;
+    private File receivedFile;
     private volatile boolean isRunning = true;
 
     public Server(int port) {
@@ -53,16 +54,15 @@ public class Server {
         }
     }
 
-    public void broadcastFile(String fileName, ClientHandler sender) {
-        File file = new File(fileName);
-        if (!file.exists() || !file.isFile()) {
+    public void broadcastFile(ClientHandler sender) {
+        if (receivedFile == null || !receivedFile.exists() || !receivedFile.isFile()) {
             sender.sendMessage("File does not exist or is not a regular file.");
             return;
         }
         
         for (ClientHandler client : clients) {
             if (client != sender) {
-                client.sendFile(file);
+                client.sendFile(receivedFile);
             }
         }
     }
@@ -92,7 +92,37 @@ public class Server {
                     }
                     if (message.startsWith("FILE_TRANSFER_REQUEST ")) {
                         String fileName = message.substring("FILE_TRANSFER_REQUEST ".length()).trim();
-                        broadcastFile(fileName, this);
+                        receivedFile = new File(fileName); // create file for the received file
+                        FileOutputStream fos = new FileOutputStream(receivedFile);
+                        BufferedOutputStream bos = new BufferedOutputStream(fos);
+
+                        byte[] buffer = new byte[1024];
+                        int bytesRead;
+                        InputStream is = socket.getInputStream();
+
+                        while (!(message = reader.readLine()).equals("FILE_TRANSFER_COMPLETE")) {
+                            bytesRead = is.read(buffer);
+                            if (bytesRead == -1) {
+                                break;
+                            }
+                            bos.write(buffer, 0, bytesRead);
+                        }
+
+                        // Wait for a short time to ensure all data has been read
+                        try {
+                            Thread.sleep(100);
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+
+                        bos.flush();
+                        bos.close();
+                        fos.close();
+
+                        // Confirm that the file transfer is complete
+                        sendMessage("FILE_RECEIVE_COMPLETE");
+
+                        broadcastFile(this); // broadcast the file after it's received completely
                     } else {
                         broadcastMessage(message, this);
                     }
@@ -134,17 +164,18 @@ public class Server {
                 int bytesRead;
                 while ((bytesRead = fis.read(buffer)) != -1) {
                     os.write(buffer, 0, bytesRead);
+                    System.out.println("Sent " + bytesRead + " bytes to client."); // Add debug info
                 }
                 fis.close();
             } catch (IOException e) {
-                e.printStackTrace();
+                System.err.println("Error occurred while sending file: " + e.getMessage()); // Change this line
             }
         }
 
     }
     
     public static void main(String[] args) {
-        Server server = new Server(6666);
+        Server server = new Server(9999);
         server.start();
     }
 }
