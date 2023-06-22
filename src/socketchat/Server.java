@@ -1,14 +1,15 @@
-
 package socketchat;
+
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.Arrays;
+import java.util.Base64;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 public class Server {
     private ServerSocket serverSocket;
     private CopyOnWriteArrayList<ClientHandler> clients;
-    private File receivedFile;
     private volatile boolean isRunning = true;
 
     public Server(int port) {
@@ -54,23 +55,11 @@ public class Server {
         }
     }
 
-    public void broadcastFile(ClientHandler sender) {
-        if (receivedFile == null || !receivedFile.exists() || !receivedFile.isFile()) {
-            sender.sendMessage("File does not exist or is not a regular file.");
-            return;
-        }
-        
-        for (ClientHandler client : clients) {
-            if (client != sender) {
-                client.sendFile(receivedFile);
-            }
-        }
-    }
-
     private class ClientHandler extends Thread {
         private Socket socket;
         private BufferedReader reader;
         private BufferedWriter writer;
+        private File receivedFile;
 
         public ClientHandler(Socket socket) {
             this.socket = socket;
@@ -81,101 +70,121 @@ public class Server {
                 e.printStackTrace();
             }
         }
+        private String readUntilEndOfChunk() throws IOException {
+            StringBuilder sb = new StringBuilder();
+            int ch;
+            String endOfChunk = "END_OF_CHUNK";
+            int endIndex = 0;
+            while ((ch = reader.read()) != -1) {
+                sb.append((char) ch);
+                if ((char) ch == endOfChunk.charAt(endIndex)) {
+                    endIndex++;
+                    if (endIndex == endOfChunk.length()) {
+                        // Found the end of chunk, remove it from the result and return
+                        sb.setLength(sb.length() - endIndex);
+                        break;
+                    }
+                } else {
+                    endIndex = 0;
+                }
+            }
+            if (sb.length() == 0) {
+                return null;
+            }
+            return sb.toString();
+        }
+    
 
         @Override
         public void run() {
             try {
-                while (true) {
-                    String message = reader.readLine();
-                    if (message == null) {
-                        break;
-                    }
-                    if (message.startsWith("FILE_TRANSFER_REQUEST ")) {
-                        String fileName = message.substring("FILE_TRANSFER_REQUEST ".length()).trim();
-                        receivedFile = new File(fileName); // create file for the received file
-                        FileOutputStream fos = new FileOutputStream(receivedFile);
-                        BufferedOutputStream bos = new BufferedOutputStream(fos);
-
-                        byte[] buffer = new byte[1024];
-                        int bytesRead;
-                        InputStream is = socket.getInputStream();
-
-                        while (!(message = reader.readLine()).equals("FILE_TRANSFER_COMPLETE")) {
-                            bytesRead = is.read(buffer);
-                            if (bytesRead == -1) {
-                                break;
-                            }
-                            bos.write(buffer, 0, bytesRead);
-                        }
-
-                        // Wait for a short time to ensure all data has been read
-                        try {
-                            Thread.sleep(100);
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
-                        }
-
-                        bos.flush();
-                        bos.close();
-                        fos.close();
-
-                        // Confirm that the file transfer is complete
-                        sendMessage("FILE_RECEIVE_COMPLETE");
-
-                        broadcastFile(this); // broadcast the file after it's received completely
+                String message;
+                while ((message = readUntilEndOfChunk()) != null) {
+                    if (message.startsWith("FILE_TRANSFER_REQUEST")) {
+                        String[] parts = message.split(" ");
+                        String fileName = parts[1];
+                        long fileSize = Long.parseLong(parts[2]);
+                        String data = readUntilEndOfChunk();  // read the Base64 string data
+                        receiveFile(fileName, fileSize, data);
+                        System.out.println("File received.");
+                        broadcastFile(this);  // Added: Broadcast file after receiving
                     } else {
-                        broadcastMessage(message, this);
+                        System.out.println("Received message: " + message);
                     }
                 }
             } catch (IOException e) {
-                e.printStackTrace();
+                System.err.println("Error occurred while reading from the socket: " + e.getMessage());
             } finally {
                 try {
-                    clients.remove(this);
-                    socket.close();
+                    // Wait before closing connection to allow "FILE_TRANSFER_COMPLETE" to be sent
+                    Thread.sleep(1000);
+                    if (socket != null) {
+                        socket.close();
+                    }
                 } catch (IOException e) {
+                    System.err.println("Error occurred while closing the socket: " + e.getMessage());
+                } catch (InterruptedException e) {
                     e.printStackTrace();
                 }
             }
         }
 
+        private void receiveFile(String fileName, long fileSize, String data) throws IOException {
+            byte[] decodedBytes = Base64.getDecoder().decode(data);
+            receivedFile = new File(fileName);
+            FileOutputStream fos = new FileOutputStream(receivedFile);
+            fos.write(decodedBytes);
+            fos.close();
+        }
+
         public void sendMessage(String message) {
             try {
                 writer.write(message);
-                writer.newLine();
+                writer.write("END_OF_CHUNK");
                 writer.flush();
             } catch (IOException e) {
                 e.printStackTrace();
             }
         }
 
-     
         public void sendFile(File file) {
             try {
-                // Inform the client that a file is available for transfer
-                writer.write("FILE_AVAILABLE " + file.getName() + " " + file.length());
-                writer.newLine();
+                writer.write("FILE_TRANSFER_REQUEST " + file.getName() + " " + file.length());
+                writer.write("END_OF_CHUNK");
                 writer.flush();
 
-                // Actually send the file
-                FileInputStream fis = new FileInputStream(file);
-                OutputStream os = socket.getOutputStream();
                 byte[] buffer = new byte[1024];
                 int bytesRead;
+                FileInputStream fis = new FileInputStream(file);
                 while ((bytesRead = fis.read(buffer)) != -1) {
-                    os.write(buffer, 0, bytesRead);
-                    System.out.println("Sent " + bytesRead + " bytes to client."); // Add debug info
+                    byte[] actualBytes = Arrays.copyOf(buffer, bytesRead);
+                    String base64Bytes = Base64.getEncoder().encodeToString(actualBytes);
+                    writer.write(base64Bytes);
+                    writer.write("END_OF_CHUNK");
+                    writer.flush();
                 }
                 fis.close();
+
+                writer.write("FILE_TRANSFER_COMPLETE");
+                writer.write("END_OF_CHUNK");
+                writer.flush();
             } catch (IOException e) {
-                System.err.println("Error occurred while sending file: " + e.getMessage()); // Change this line
+                e.printStackTrace();
             }
         }
-
     }
-    
+
+    // Added: Method to broadcast file
+    public void broadcastFile(ClientHandler sender) {
+        for (ClientHandler client : clients) {
+            if (client != sender) {
+                client.sendFile(sender.receivedFile);
+            }
+        }
+    }
+
     public static void main(String[] args) {
-        Server server = new Server(9999);
+        Server server = new Server(6665);
         server.start();
     }
 }
